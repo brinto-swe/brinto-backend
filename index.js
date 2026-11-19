@@ -1,33 +1,77 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { createApp } from './src/app.js';
+import { createAuth } from './src/auth.js';
+import { ConfigError, loadConfig } from './src/config.js';
+import { createDatabase } from './src/database.js';
+import { reportError } from './src/errors.js';
 
-const app = express();
-const port = process.env.PORT || 5000;
+let database;
+let stage = 'validate configuration';
 
-// middleware 
-app.use(express.json());
-app.use(cors());
+try {
+  const config = loadConfig();
+  stage = 'connect to MongoDB and prepare application indexes';
+  database = createDatabase(config);
+  await database.connect();
 
-dotenv.config();
+  stage = 'initialize Better Auth';
+  const auth = createAuth(config, database);
+  await auth.$context;
 
-const client = new MongoClient(`mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.0l052eh.mongodb.net/`);
+  stage = 'start the HTTP listener';
+  const server = createServer(createApp({ config, database, auth }));
+  server.listen(config.port, config.host);
+  await once(server, 'listening');
+  console.info(`Brinto API listening on port ${config.port}.`);
 
-export async function connectToMongoDB() {
+  let stopping = false;
+
+  async function shutdown() {
+    if (stopping) return;
+    stopping = true;
+
+    const deadline = setTimeout(() => {
+      reportError('HTTP shutdown timed out');
+      process.exitCode = 1;
+      server.closeAllConnections();
+    }, 10_000).unref();
+
+    try {
+      await new Promise((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+    } catch (error) {
+      reportError('HTTP shutdown failed', error);
+      process.exitCode = 1;
+    } finally {
+      clearTimeout(deadline);
+      try {
+        await database.close();
+      } catch (error) {
+        reportError('MongoDB shutdown failed', error);
+        process.exitCode = 1;
+      }
+    }
+  }
+
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+  server.on('error', (error) => {
+    reportError('HTTP server failed', error);
+    process.exitCode = 1;
+    void shutdown();
+  });
+} catch (error) {
+  if (error instanceof ConfigError) {
+    console.error(error.message);
+  } else {
+    reportError(`Could not ${stage}`, error);
+  }
+  process.exitCode = 1;
   try {
-    await client.connect();
-    console.log("You successfully connected to MongoDB!");
-    return client;
-  } catch (err) {
-    console.dir(err);
+    await database?.close();
+  } catch (closeError) {
+    reportError('MongoDB cleanup failed', closeError);
   }
 }
-
-app.get('/', (req, res) => {
-  res.send('Hello World!');
-});
-
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
-});
