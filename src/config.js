@@ -13,6 +13,8 @@ export function loadConfig() {
   const port = Number(env.PORT ?? 5000);
   const host = env.HOST?.trim() || '127.0.0.1';
   const transactions = env.MONGODB_TRANSACTIONS ?? 'true';
+  const imgBBKey = env.IMGBB_API_KEY?.trim();
+  const imageUploadMaxBytes = Number(env.MEDIA_IMAGE_MAX_BYTES ?? 5 * 1024 * 1024);
   const invalid = [];
 
   if (!/^mongodb(?:\+srv)?:\/\/[^\s]+$/.test(mongoUri ?? '')) invalid.push('MONGODB_URI');
@@ -21,6 +23,9 @@ export function loadConfig() {
   if (!ownerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail)) invalid.push('OWNER_EMAIL');
   if (!Number.isInteger(port) || port < 1 || port > 65535) invalid.push('PORT');
   if (!['true', 'false'].includes(transactions)) invalid.push('MONGODB_TRANSACTIONS');
+  if (!Number.isInteger(imageUploadMaxBytes) || imageUploadMaxBytes < 1 || imageUploadMaxBytes > 8 * 1024 * 1024) {
+    invalid.push('MEDIA_IMAGE_MAX_BYTES (1 to 8388608)');
+  }
 
   let publicOrigin;
   try {
@@ -38,5 +43,8 @@ export function loadConfig() {
     throw new ConfigError(`Missing or invalid environment configuration: ${invalid.join(', ')}.`);
   }
 
-  return { mongoUri, dbName, secret, ownerEmail, port, host, publicOrigin, mongoTransactions: transactions === 'true' };
+  return {
+    mongoUri, dbName, secret, ownerEmail, port, host, publicOrigin,
+    mongoTransactions: transactions === 'true', imgBBKey, imageUploadMaxBytes,
+  };
 }

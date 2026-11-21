@@ -10,6 +10,22 @@ The API connects to MongoDB and creates its application indexes before listening
 
 Better Auth uses shared per-path rate limits because the Next.js rewrite does not establish a trusted client IP header. Apply per-client limits at the public gateway if your deployment needs them.
 
+## Bundled Blog seed
+
+From the backend folder, run `node scripts/seed-blog.js --dry-run` with both project folders present. The script reads the original frontend articles and their public bilingual byline. It validates the content and publication eligibility with the Blog API validators, then reads the configured MongoDB `posts` collection. The per-article report shows missing slugs, equivalent records, and conflicts. Dry run skips index preparation and performs no write.
+
+The bundled articles are publicly listed and already dated. The seed maps each original `YYYY-MM-DD` to midnight UTC in `publishedAt` and requires the same eligibility and past-date checks as the API before marking it published. Reading times and ordered categories come from the source. Search text uses the backend's derived fields. Slugs stay unchanged and the seed ObjectId is deterministic. Insertion timestamps are assigned only when an actual insert occurs.
+
+The future `--apply` mode requires explicit approval before use. It inserts only rows classified as missing, requires the existing full unique slug index, and rechecks duplicate-key races. Equivalent and conflicting records are skipped. The script never replaces or deletes posts and never creates collections or indexes manually.
+
+## Admin image uploads
+
+Set `IMGBB_API_KEY` in the Express runtime environment and restart Express. `MEDIA_IMAGE_MAX_BYTES` defaults to 5 MiB (5242880 bytes) and accepts up to 8 MiB (8388608 bytes). In production, allow the configured image limit plus 16 KiB of multipart overhead through the hosting ingress and any reverse proxy. Align the uploader’s `maxBytes` prop if you change the default. [ImgBB API documentation](https://api.imgbb.com/)
+
+The same-origin `POST /api/admin/media/images` accepts one multipart `image` file and one `purpose` field. Supported purposes are `profile`, `project`, `certification-thumbnail`, `blog-cover`, and `blog-content`. Uploads accept still JPEG, PNG, or WebP up to 6000 × 6000 pixels and 20 megapixels. Express checks the owner session and origin, decodes and re-encodes the image, then sends it to ImgBB. The returned dimensions and file size describe the prepared image. ImgBB URLs are public, even while the asset is unattached. Upload only images intended for public display. Keep original certificate files out of ImgBB.
+
+Successful uploads insert a `media_assets` record with `attachmentState: 'unattached'`. Future CMS save handlers should validate the asset’s ownership and purpose before attaching it. An abandoned upload or failed CMS save leaves the asset unattached and the existing CMS reference intact. Replacements and removals in the uploader only change the form selection. A provider success followed by a failed metadata insert, or a provider timeout after ImgBB accepts the upload, can leave an untracked image. Handle those cases through private ImgBB account reconciliation until there is an approved cleanup process. Do not automatically delete uploads on retry or replacement. Provider deletion URLs are discarded.
+
 ## Provision the owner
 
 Confirm the target database and `OWNER_EMAIL` before running this command. The CLI creates a Better Auth credential account with a verified owner email through a server-only call. The HTTP app leaves email registration disabled and does not load the admin plugin. The command refuses to replace an existing account.

@@ -12,6 +12,7 @@ export function createDatabase({ mongoUri, dbName }) {
     certifications: db.collection('certifications'),
     skills: db.collection('skills'),
     education: db.collection('education'),
+    mediaAssets: db.collection('media_assets'),
   };
 
   const ping = () => db.command({ ping: 1 }, { timeoutMS: 2_000 });
